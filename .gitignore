@@ -1,0 +1,3 @@
+# Ignore local directories
+.idea/
+.DS_Store/
