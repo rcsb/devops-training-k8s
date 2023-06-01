@@ -5,7 +5,10 @@
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
     <style>
         @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
-        .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono',monospace; }
+        body { font-family: sans-serif; }
+        li { margin-bottom: 15px; }
+        .remark-code { font-family: 'Ubuntu Mono',monospace; }
+        .remark-inline-code { font-family: 'Ubuntu Mono',monospace; background: #F0F0F0; margin: 5px}
     </style>
 </head>
 <body>
@@ -15,14 +18,383 @@ class: center, middle
 
 # RCSB K8s Cluster Training
 
-First slide!
+https://rcsb.github.io/devops-training-k8s
 
 ---
 
 # Agenda
 
 1. Introduction
-2. ...
+2. Pre-Requisites
+3. Using Helm
+4. Ingress Gateways
+5. Shh - It's a secret
+6. Additional Resources
+
+---
+
+# Introduction
+
+This training will cover specific resources and services utilized within the RCSB K8s cluster which you can leverage to help with the development and deployments of your services and applications.
+
+By the end of this training, you should be able to:
+- Utilize Helm to deploy new resources and updates into K8s
+- Set up ingress gateways to allow external traffic to your resources
+- Secure public-facing resources using Google Authentication
+- Integrate secrets using an external Vault service
+- Set up credentials to pull Docker images from a private Harbor repository
+
+---
+
+# Pre-Requisites
+
+- Followed the instructions on the https://kubelogin.devops.k8s.rcsb.org/ website to gain access to the RCSB K8s cluster.
+- Followed the instructions on the https://rcsbpdb.atlassian.net/wiki/spaces/IN/pages/2172157970/Harbor+Registry page to gain access to the RCSB Harbor platform.
+- Installed [Helm](https://helm.sh/docs/intro/install/).
+- `git clone` a local copy of this repository in your local environment.
+
+---
+
+# Pre-Requisites
+
+If your local environment is correctly setup, you should be able to:
+
+- Run the `kubectl cluster-info` command and get a successful response message back.
+- Run the command below to set your current context to your private namespace:
+
+```bash
+kubectl config set-context --current --namespace=<your kubelogin username>
+
+# If correctly set, this command should output your kubelogin username as the current namespace
+kubectl config view --minify -o jsonpath='{..namespace}'
+```
+
+---
+
+# Using Helm
+
+[Helm](https://helm.sh/) is a useful utility to help package and templetize your K8s resources. Using whats known as a Helm chart, you can define and deploy resources using templates, variables, dependencies, and much more.
+
+This repository will start out with a default Helm chart under the `k8s/helm` directory which we will use for our examples. Lets take a look at:
+- The structure of the Helm chart directory.
+- The `deployment.yaml` and `service.yaml` templates.
+- The `values.yaml` and `_helpers.tpl` files.
+
+---
+
+# Using Helm
+
+When you're ready to try out deploying this Helm chart, run the following command in your terminal:
+
+```bash
+cd k8s/helm
+
+helm install example . --namespace=<your kubelogin username>
+```
+
+If it successfully deploys, you should see an output message like:
+
+```bash
+NAME: example
+LAST DEPLOYED: Thu Jan  1 00:00:00 1970
+NAMESPACE: <your kubelogin username>
+STATUS: deployed
+REVISION: 1
+```
+
+---
+
+# Using Helm
+
+You can view the current state of your helm deployment using the following command:
+
+```bash
+helm list
+```
+
+It should output the example application we just deployed and report a status of `deployed` if everything went well. You can also confirm that the resources defined in the helm chart were created as well:
+
+```bash
+kubectl get deployments
+kubectl describe deployment example
+kubectl get pods
+kubectl get services
+```
+
+---
+
+# Using Helm
+
+Now lets try and modify our Helm chart to increase the replica count of the deployment to 2 Pods. Modify the `values.yaml` file and the `replicaCount` variable accordingly. Once that's done, update the Helm chart deployment with the following command:
+
+```bash
+helm upgrade example .
+
+# Once the deployment is complete, confirm the number of Pods now running
+kubectl get pods
+```
+
+---
+
+# Ingress Gateways
+
+So we can use Helm to define and deploy resources into our K8s cluster and namespace, but now we want to be able to actually see this website externally. In order to do that, we will need to define and deploy an `ingress` resource.
+
+Change your local repository to the `ingress-gateways` branch using the following command:
+
+```bash
+git checkout ingress-gateways
+```
+
+This branch will now contain a new `k8s/helm/templates/ingress.yaml` template file which will create a new ingress gateway resource as part of your Helm chart. Review the files to see how the resource is defined and what will be created.
+
+---
+
+# Ingress Gateways
+
+To deploy the ingress gateway, run the following command:
+
+```bash
+helm upgrade example .
+```
+
+After the deployment is complete, you should be able to visit the site via the internet by navigating to `http://example.<your kubelogin username>.k8s.rcsb.org`. It should show a default generic welcome to Nginx landing page.
+
+Note that the DNS name for this ingress gateway is a subdomain of the `k8s.rcsb.org` DNS name. Our cluster is configured to support dynamic subdomains of resources running in our K8s cluster under that domain name only. If you need to deploy a website under another domain name, reach out to the DevOps team for support.
+
+---
+
+# Ingress Gateways
+
+Our website is now accessible over the internet, but it would be nice to provide users with a bit more security by integrating a TLS certificate so you can visit the site using the HTTPS protocol. To add in this capability, modify the `ingress.yaml` resource to look like the following:
+
+<style>.yaml { font-size: 0.7em }</style>
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "example.fullname" . }}
+  annotations:
+    cert-manager.io/cluster-issuer: rutgers-acme
+  labels:
+    {{- include "example.labels" . | nindent 4 }}
+spec:
+  tls:
+    - hosts:
+        - "example.{{ .Release.Namespace }}.k8s.rcsb.org"
+      secretName: example-tls
+  rules:
+    - host: "example.{{ .Release.Namespace }}.k8s.rcsb.org"
+      http:
+        paths:
+          - path: "/"
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "example.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+```
+
+---
+
+# Ingress Gateways
+
+Note that the annotation reference to `rutgers-acme` is a specific annotation value created by the DevOps team for the cluster. We utilize the [cert-manager](https://cert-manager.io/) extension to help with the certificate management process on the cluster.
+
+Also note that the `spec.tls.[].hosts` and `spec.rules.[].host` values match. This matching value is important in order for the certificate to work. If the values do not match, when a user visits the website, their browser will throw a security warning.
+
+---
+
+# Ingress Gateways
+
+One other useful feature we have in our cluster is securing public facing websites behind a Google Authentication screen. This will allow the website to be accessible over the public internet, but will require users to authenticate with their `@rcsb.org` Google account first before they see the page (note that ONLY `@rcsb.org` accounts will work).
+
+In order to integrate this service, simply add in the following annotation to the `ingress` resource:
+
+```yaml
+nginx.ingress.kubernetes.io/auth-signin: https://oauth2-proxy-devops.devops.k8s.rcsb.org/oauth2/start?rd=https://$host$escaped_request_uri
+nginx.ingress.kubernetes.io/auth-url: https://oauth2-proxy-devops.devops.k8s.rcsb.org/oauth2/auth
+```
+
+Deploy the updates with the new annotation, then try and visit the site again. This time, you should be prompted to login in first before you can reach the landing page.
+
+---
+
+# Shh - It's a secret
+
+Secrets management is an important part of deploying and running secure applications in production. Secret values (such as passwords or API keys) should never be committed into the version control system. Instead, these values should be defined and stored separately, then pulled into the application run-time environment when in use.
+
+Within the RCSB K8s system, we integrate an externally hosted [Hashicorp Vault](https://www.vaultproject.io/) platform accessible via https://vault.devops.rcsb.org/. Secrets are stored within this platform, then pulled in as `secret` K8s resources as needed. Accessing and using this platform is out-of-scope for this training, but we will assume that the K8s cluster is already configured with the secrets and service accounts necessary for our example.
+
+---
+
+# Shh - It's a secret
+
+Change your local repository to the `secrets` branch using the following command:
+
+```bash
+git checkout secrets
+```
+
+This branch will now contain a new `src` directory, which contains a very simple NodeJS web application that reads in secrets as an environment variable to use in the app. The branch also contains a `Dockerfile` definition to containerize this application.
+
+---
+
+# Shh - It's a secret
+
+Lets build the Docker image for this example application and push it into the RCSB Harbor system so it's usable. In order to do this, ensure that you have write access to a project in Harbor, and that project is publicly accessible. Then, run the following commands in the root of the project directory:
+
+```bash
+docker build . --tag harbor.devops.k8s.rcsb.org/<project name>/example-secret
+docker push harbor.devops.k8s.rcsb.org/<project name>/example-secret
+```
+
+Once it's pushed to the Harbor registry, you can modify the `values.yaml` file of the Helm chart for this example to point to this new Docker image location and port that the application will run off of. Deploy the changes, then verify that the new version of the website is live.
+
+---
+
+# Shh - It's a secret
+
+If the deployment completed successfully, you should see the new website live on your site, but the hello world message will think that your favorite color is `undefined`. In order for the web application to show your correct favorite color, you'll have to make sure that the environment variable for the application is correctly defined and made available to your application.
+
+First, lets create a `secret` resource in working namespace which will contain this color value. We can create it by using the following command:
+
+```bash
+kubectl create secret generic example-secret --from-literal=color=<your favorite color here>
+
+# Verify the secret was created
+kubectl describe secret example-secret
+```
+
+---
+
+# Shh - It's a secret
+
+Now that the secret is created, you can modify your `deployment.yaml` template to utilize that `secret` resource as an environment variable in your Pod. Modify the `spec.template.spec.containers` value to include the following:
+
+```yaml
+env:
+- name: SECRET_COLOR
+  valueFrom:
+    secretKeyRef:
+      name: example-secret
+      key: color
+```
+
+Deploy the updated Helm chart and confirm if the website now correctly shows your favorite color!
+
+---
+
+# Shh - It's a secret
+
+If we decide to commit our changes to the application and Helm chart now back to GitHub, it's still safe. The references to the secret resource and environment variable value is in place, but we do not expose the actual secret value anywhere within our commit. However, it does require that we manually create the secret value first and add it into the namespace, which makes the environment fairly fragile and not very portable.
+
+Lets take a look at a way to fix this problem, and allow us to use our Docker image without using making our project public as well.
+
+---
+
+# Shh - It's a secret
+
+First, go back to your project in Harbor, then change the configuration of the project to no longer be public. Your website will still work (since K8s already pulled the image previously), but the next time you try to update the Helm chart again, the new Pod version will fail to start, as it would fail to pull the image from Harbor.
+
+To resolve this error, we need to pull in a specific secret value from our Vault service, and configure the deployment to use that secret value to authenticate with Harbor.
+
+---
+
+# Shh - It's a secret
+
+Create a new file under the `k8s/helm/templates` directory called `externalsecret.yaml` with the following content:
+
+```yaml
+# Secret used by pod templates to connect to private Harbor registry
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: harbor-docker-registry-conf
+spec:
+  refreshInterval: 15s
+  secretStoreRef:
+    name: rcsb-vault
+    kind: ClusterSecretStore
+  target:
+    name: harbor-docker-registry-conf
+    template:
+      type: kubernetes.io/dockerconfigjson
+  data:
+    - secretKey: ".dockerconfigjson"
+      remoteRef:
+        key: "harbor/k8s_registry_secret"
+        property: ".dockerconfigjson"
+```
+
+This will create a new resource in the namespace that utilizes the `external-secrets.io` extension already setup in our cluster to pull the necessary secret value from vault.
+
+---
+
+# Shh - It's a secret
+
+Next, modify the `deployment.yaml` file to add in a new value under the `spec.template.spec` block:
+
+```yaml
+imagePullSecrets:
+  - name: harbor-docker-registry-conf
+```
+
+This tells K8s to use the imported `secret` resource to authenticate with Harbor.
+
+Deploy the updated Helm chart, and confirm that everything is working after deployment with the following commands:
+
+```bash
+kubectl get ExternalSecrets
+kubectl get secrets
+kubectl get pods
+```
+
+---
+
+# Conclusion and Additional Resources
+
+At this point, we have gone over how to:
+
+- Utilize Helm to deploy new resources and updates into K8s
+- Set up ingress gateways to allow external traffic to your resources
+- Secure public-facing resources using Google Authentication
+- Integrate secrets using an external Vault service
+- Set up credentials to pull Docker images from a private Harbor repository
+
+---
+
+# Conclusion and Additional Resources
+
+This concludes the training session, but there's so much more that you can do within the RCSB K8s environment, including:
+
+- Setting up persistent storage of file and data across Pods and Deployments
+- Setting up Pods with additional security context and permissions
+- Automatically scaling resources by CPU or Memory
+
+These topics are much more advance and will require coordinating and integrating multiple services together. If you are interested in learning more about these topics or would like to leverage these advanced features for your application, please reach out to the DevOps team for more information.
+
+---
+
+# Conclusion and Additional Resources
+
+Feel free to continue using your namespace for any additional testing, but if you no longer require the example application, run the following command to uninstall your Helm application:
+
+```bash
+helm uninstall example
+```
+
+For additional information about previous training sessions and for a recording of this session, visit https://rcsbpdb.atlassian.net/wiki/spaces/IN/pages/2165735441/Kubernetes+Developer+Training+Materials.
+
+---
+
+class: center, middle
+
+# The End
+
+And thank you!
 
 </textarea>
 <script src="https://remarkjs.com/downloads/remark-latest.min.js" type="text/javascript">
