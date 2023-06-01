@@ -1,3 +1,6 @@
 # Ignore local directories
 .idea/
 .DS_Store/
+
+# Ignore npm directory
+src/node_modules/

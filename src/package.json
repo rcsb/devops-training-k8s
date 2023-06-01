@@ -1,0 +1,12 @@
+{
+  "name": "example-nodejs",
+  "version": "1.0.0",
+  "description": "A simple NodeJS example application to learn about working with secrets",
+  "main": "index.js",
+  "scripts": {
+    "start": "node ."
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
