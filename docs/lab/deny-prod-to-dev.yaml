@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-prod-to-dev
+spec:
+  podSelector:
+    matchLabels:
+      app: dev-app
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: prod-app
+    ports:
+    - protocol: TCP
+      port: 8080

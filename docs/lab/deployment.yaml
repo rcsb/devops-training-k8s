@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ligand-expo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ligand-expo
+  template:
+    metadata:
+      labels:
+        app: ligand-expo
+    spec:
+      containers:
+      - name: ligand
+        image: harbor.myorg.local/ckad/ligand-expo:latest
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+      imagePullSecrets:
+      - name: harbor-creds
