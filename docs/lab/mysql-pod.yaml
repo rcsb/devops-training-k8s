@@ -8,4 +8,6 @@ spec:
   containers:
   - name: mysql
     image: busybox
-    command: ['sh', '-c', 'while true; do echo "MySQL is running"; sleep 10; done']
+    command: ['sh', '-c', "while true; do echo 'Mock MySQL' | nc -l -p 3306; done"]
+    ports:
+    - containerPort: 3306
