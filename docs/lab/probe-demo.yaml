@@ -6,6 +6,7 @@ spec:
   containers:
   - name: demo
     image: nginx
+    command: ["/bin/sh", "-c", "touch /tmp/healthy && nginx -g 'daemon off;'"]
     resources:
       requests:
         memory: "64Mi"
