@@ -4,7 +4,7 @@ kind: Pod
 metadata:
   name: blocked-client
   labels:
-    app: blocked
+    app: mysql
 spec:
   containers:
   - name: busybox
