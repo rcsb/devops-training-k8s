@@ -1,0 +1,12 @@
+# allowed-client.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: allowed-client
+  labels:
+    app: my-app
+spec:
+  containers:
+  - name: busybox
+    image: busybox
+    command: ["sleep", "3600"]
